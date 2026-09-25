@@ -1,0 +1,11 @@
+---
+title: "ST 558 Project 1"
+author: "Carlos Petzold"
+format: html
+---
+
+#Introduction
+
+## Here we are working on our first major project for ST 558, let's do it! Our overall goal is to write functions that will manipulate and process data that comes from the Census API, and write out our thought process as we work through it. 
+
+## The data that we are using will be queried from the Public Use Microdata Sample (PUMS) Census API, which gives person-level data. There are many different years included, but we will focus on 2021-2024 for this project, and we are also excluding Puerto Rico.

@@ -4,8 +4,76 @@ author: "Carlos Petzold"
 format: html
 ---
 
-#Introduction
+# Introduction
 
-## Here we are working on our first major project for ST 558, let's do it! Our overall goal is to write functions that will manipulate and process data that comes from the Census API, and write out our thought process as we work through it. 
+Here we are working on our first major project for ST 558, let's do it! Our overall goal is to write functions that will manipulate and process data that comes from the Census API, and write out our thought process as we work through it. 
 
-## The data that we are using will be queried from the Public Use Microdata Sample (PUMS) Census API, which gives person-level data. There are many different years included, but we will focus on 2021-2024 for this project, and we are also excluding Puerto Rico.
+The data that we are using will be queried from the Public Use Microdata Sample (PUMS) Census API, which gives person-level data. There are many different years included, but we will focus on 2021-2024 for this project, and we are also excluding Puerto Rico.
+
+
+# Part 1: Data Processing
+
+## We'll begin by downloading and parsing the JSON files with the variable descriptions for each year:
+
+```{r Part 1 - Parsing Variable Values}
+
+#pull needed libraries
+library(httr)
+library(jsonlite)
+
+#Using the Glue library for "better looking" paths
+library(glue)
+
+#setting desired variables for 2021-22 data
+vars_21_22 <- c("AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP", "PWGTP", "FER", "HHL", "SCH", "SCHL", "SEX", "ST", "REGION", "DIVISION")
+
+#setting desired variables for 2023-24 data
+vars_23_24 <- c("AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP", "PWGTP", "FER", "HHL", "SCH", "SCHL", "SEX", "STATE", "REGION", "DIVISION")
+
+#Function for pulling census data by year and variables
+pull_census_data <- function(year, vars) {
+  
+  #grabbing URL based on year 
+  url <- glue("https://api.census.gov/data/{year}/acs/acs1/pums/variables.json")
+  data <- GET(url)
+  
+  #Stop the function if the data request fails
+  if (status_code(data) != 200) {
+    stop(glue("Error, Census data request failed for year {year}: status {status_code(data)}"))
+  }
+  
+  #Grab parsed content from the data we pulled
+  parsed <- content(data, as = "text", encoding = "UTF-8") |> fromJSON()
+  
+  #Filter to our desired variables
+  parsed$variables[vars]
+  
+}
+
+#running our parsing function for years 2021-2024 to obtain one list for each year
+vars_2021 <- pull_census_data(2021, vars_21_22)
+vars_2022 <- pull_census_data(2022, vars_21_22)
+vars_2023 <- pull_census_data(2023, vars_23_24)
+vars_2024 <- pull_census_data(2024, vars_23_24)
+
+#Saving our lists as an RDS file in our repo under a data folder
+census_var_list <- list("2021" = vars_2021, "2022" = vars_2022, "2023" = vars_2023, "2024" = vars_2024)
+
+dir.create("data", showWarnings = FALSE)
+saveRDS(census_var_list, file = "data/census_var_list.rds")
+
+```
+
+Looking above, we have created a reusable function for pulling census data from the census API based on the desired year and the desired set of variables. If we wanted to pull a different year, we would update the list of variable names, then simply update the parameters in the new function call to pull that data. We would have to manually include this new data to the census_var_list .rds file we've created at the end, but we could cross that bridge if we came to it.
+
+Next, we are going to write a function to query the PUMS API and return a nicely formatted tibble: 
+
+```{r Part 1 - Parsing API Data}
+
+
+
+```
+
+
+
+

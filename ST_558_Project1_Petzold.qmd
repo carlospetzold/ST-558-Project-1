@@ -70,8 +70,93 @@ Next, we are going to write a function to query the PUMS API and return a nicely
 
 ```{r Part 1 - Parsing API Data}
 
+library(tibble)
+
+#Here we are using 2024 data for NC, requesting age, weight, and sex, restricting the age to 25 to make it easier to inspect
+response <- GET(
+  "https://api.census.gov/data/2024/acs/acs1/pums",
+  query = list(
+    get = "AGEP,PWGTP,SEX",
+    `for` = "state:37",
+    AGEP = "25",
+    key = Sys.getenv("CENSUS_API_KEY")
+  )
+)
+
+#converts http errors into R errors, helps to indicate why a request has failed if it does
+stop_for_status(response)
 
 
+
+#Next, we will convert the JSON text into an R object
+parsed_data <- content(
+  response,
+  as = "text",
+  encoding = "UTF-8"
+) |>
+  fromJSON()
+
+head(parsed_data)
+str(parsed_data)
+
+# Extract the column names
+column_names <- parsed_data[1, ]
+
+# Convert the remaining rows into a tibble
+census_data <- tibble::as_tibble(
+  parsed_data[-1, , drop = FALSE],
+  .name_repair = "minimal"
+)
+
+# Assign the names we extracted
+names(census_data) <- column_names
+
+census_data <- census_data[, !duplicated(names(census_data))]
+
+head(census_data)
+str(census_data)
+
+
+#Now, let's wrap the above steps into a helper function
+response_to_tibble <- function(response) {
+
+  # Stop if the request returned an HTTP error
+  stop_for_status(response)
+
+  # Read the response as text
+  response_text <- content(
+    response,
+    as = "text",
+    encoding = "UTF-8"
+  )
+
+  # Catch non-JSON responses, including the HTML key errors we encountered
+  if (!jsonlite::validate(response_text)) {
+    stop("The API did not return valid JSON. Check your request and API key.")
+  }
+
+  # Parse the JSON and extract the header row
+  parsed_data <- fromJSON(response_text)
+  column_names <- parsed_data[1, ]
+
+  # Convert the observation rows into a tibble
+  census_data <- tibble::as_tibble(
+    parsed_data[-1, , drop = FALSE],
+    .name_repair = "minimal"
+  )
+
+  names(census_data) <- column_names
+
+  # Remove repeated columns returned from filtering requested variables
+  census_data <- census_data[, !duplicated(names(census_data))]
+
+  return(census_data)
+}
+
+census_data <- response_to_tibble(response)
+
+head(census_data)
+names(census_data)
 ```
 
 

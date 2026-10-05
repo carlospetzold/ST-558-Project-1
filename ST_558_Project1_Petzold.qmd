@@ -13,7 +13,7 @@ The data that we are using will be queried from the Public Use Microdata Sample 
 
 # Part 1: Data Processing
 
-## We'll begin by downloading and parsing the JSON files with the variable descriptions for each year:
+We'll begin by downloading and parsing the JSON files with the variable descriptions for each year:
 
 ```{r Part 1 - Parsing Variable Values}
 
@@ -533,4 +533,142 @@ query_census_years <- function(years = 2021:2024, numeric_vars = c("AGEP", "PWGT
   result
 }
 ```
+
+
+# Part 2: Writing a Generic Function for Summarizing
+
+Now we will work on creating some generic functions that we can use to explore our census data, specifically adding methods to the existing summary() and plot() generic functions. We will start with 2 smaller helper functions to identify eligible columns and validate weights. Time variables should not be included in the numeric summaries, and weights must be numeric, non-negative, and finite so that weighted calculations are meaningful:
+
+```{r Part 2 - Writing a Generic Function for Summarizing 1}
+
+is_measurement <- function(x) {
+  is.numeric(x) && !inherits(x, c("difftime", "POSIXt", "Date"))
+}
+
+check_weights <- function(x) {
+  if (!"PWGTP" %in% names(x) ||
+      !is.numeric(x$PWGTP) ||
+      anyNA(x$PWGTP) ||
+      any(!is.finite(x$PWGTP)) ||
+      any(x$PWGTP < 0)) {
+    stop("PWGTP must contain finite, nonnegative numeric weights.")
+  }
+}
+
+```
+
+
+Each row has a person's weight, PWGTP, indicating how much it contributes to the population estimates. Treating every row equally would ignore these differences, so our summary method calculates weighted means and standard deviations using the given formulas, and categorical counts by adding the weights within each category.
+
+By default, the method summarizes all eligible numeric and categorical columns, excluding PWGTP and time variables from the numeric calculations. For each numeric variable, observations with missing values are excluded along with their weights. The results are returned as a named list, separating numeric summaries from categorical counts.
+
+```{r Part 2 - Writing a Generic Function for Summarizing 2}
+
+summary_census <- function(
+    object,
+    numeric_vars = NULL,
+    categorical_vars = NULL,
+    ...
+) {
+
+  check_weights(object)
+
+  available_numeric <- setdiff(
+    names(object)[vapply(object, is_measurement, logical(1))],
+    c("PWGTP", "year")
+  )
+
+  available_categorical <- names(object)[
+    vapply(
+      object,
+      function(x) is.factor(x) || is.character(x),
+      logical(1)
+    )
+  ]
+
+  if (is.null(numeric_vars)) {
+    numeric_vars <- available_numeric
+  }
+
+  if (is.null(categorical_vars)) {
+    categorical_vars <- available_categorical
+  }
+
+  if (!is.character(numeric_vars) ||
+      anyNA(numeric_vars) ||
+      !all(numeric_vars %in% available_numeric)) {
+    stop("Select eligible numeric variables; exclude PWGTP and times.")
+  }
+
+  if (!is.character(categorical_vars) ||
+      anyNA(categorical_vars) ||
+      !all(categorical_vars %in% available_categorical)) {
+    stop("Select categorical columns present in the data.")
+  }
+
+  numeric_vars <- unique(numeric_vars)
+  categorical_vars <- unique(categorical_vars)
+
+  numeric_results <- lapply(numeric_vars, function(variable) {
+    values <- object[[variable]]
+    weights <- object$PWGTP
+
+    # Use the same observations in numerator and denominator
+    keep <- is.finite(values) & weights > 0
+
+    values <- values[keep]
+    weights <- weights[keep]
+
+    if (length(values) == 0L) {
+      return(c(mean = NA_real_, sd = NA_real_))
+    }
+
+    weighted_mean <- sum(values * weights) / sum(weights)
+
+    weighted_variance <- (
+      sum(values^2 * weights) / sum(weights)
+    ) - weighted_mean^2
+
+    c(
+      mean = weighted_mean,
+      sd = sqrt(max(0, weighted_variance))
+    )
+  })
+
+  names(numeric_results) <- numeric_vars
+
+  categorical_results <- lapply(categorical_vars, function(variable) {
+    values <- object[[variable]]
+
+    if (!is.factor(values)) {
+      values <- factor(values)
+    }
+
+    counts <- vapply(levels(values), function(level) {
+      sum(object$PWGTP[!is.na(values) & values == level])
+    }, numeric(1))
+
+    # Report actual missing observations separately
+    if (anyNA(values)) {
+      counts <- c(
+        counts,
+        "(Missing)" = sum(object$PWGTP[is.na(values)])
+      )
+    }
+
+    counts
+  })
+
+  names(categorical_results) <- categorical_vars
+
+  list(
+    numeric = numeric_results,
+    categorical = categorical_results
+  )
+}
+```
+
+
+
+
 

@@ -669,6 +669,68 @@ summary_census <- function(
 ```
 
 
+To visually compare, we will create a plotting method for objects with the "census" class. We must select one categorical variable and one numeric measurement. The method produces a boxplot for each category and includes PWGTP in the weight aesthetic so that the boxplot calculations account for the person weights. Observations missing either selected variable, or having zero weight, are excluded from the plot.
 
+```{r Part 2 - Writing a Generic Function for Summarizing 3}
+plot_census <- function(x, cat_var, num_var, ...) {
 
+  check_weights(x)
+
+  if (missing(cat_var) || missing(num_var)) {
+    stop("Specify one categorical variable and one numeric variable.")
+  }
+
+  if (!is.character(cat_var) ||
+      length(cat_var) != 1L ||
+      anyNA(cat_var) ||
+      !cat_var %in% names(x)) {
+    stop("cat_var must name one column in the data.")
+  }
+
+  if (!is.character(num_var) ||
+      length(num_var) != 1L ||
+      anyNA(num_var) ||
+      !num_var %in% names(x)) {
+    stop("num_var must name one column in the data.")
+  }
+
+  if (!(is.factor(x[[cat_var]]) || is.character(x[[cat_var]]))) {
+    stop("cat_var must be categorical.")
+  }
+
+  if (!is_measurement(x[[num_var]]) ||
+      num_var %in% c("PWGTP", "year")) {
+    stop("num_var must be a numeric measurement, excluding weights and times.")
+  }
+
+  keep <- !is.na(x[[cat_var]]) &
+    is.finite(x[[num_var]]) &
+    x$PWGTP > 0
+
+  plot_data <- x[keep, ]
+
+  if (nrow(plot_data) == 0L) {
+    stop("No complete observations with positive weights to plot.")
+  }
+
+  class(plot_data) <- setdiff(class(plot_data), "census")
+
+  ggplot2::ggplot(
+    plot_data,
+    ggplot2::aes(
+      x = .data[[cat_var]],
+      y = .data[[num_var]],
+      weight = PWGTP
+    )
+  ) +
+    ggplot2::geom_boxplot(...) +
+    ggplot2::labs(
+      x = cat_var,
+      y = num_var,
+      title = paste(num_var, "by", cat_var),
+      subtitle = "Weighted using PWGTP"
+    ) +
+    ggplot2::theme_minimal()
+}
+```
 

@@ -472,3 +472,65 @@ query_census <- function(year = 2024, numeric_vars = c("AGEP", "PWGTP"), categor
 
 ```
 
+
+First we'll test the default call of the function, and also make sure that our time conversion works appropriately:
+
+```{r Part 1 - Parsing API Data 6}
+
+#Testing the default call
+nc_2024 <- query_census()
+
+head(nc_2024)
+str(nc_2024)
+class(nc_2024)
+
+nc_times <- query_census(
+  numeric_vars = c("AGEP", "PWGTP", "JWAP", "JWDP")
+)
+
+head(nc_times[c("JWAP", "JWDP")])
+
+```
+
+
+Our single-year function handles one survey year at a time. To compare years, we will write a wrapper that calls it once for each requested year and combines the results. Reusing the existing function keeps the validation and conversion steps consistent. We will also add a year column and store it as a factor because it identifies survey groups for our summaries and plots:
+
+```{r Part 1 - Parsing API Data 8}
+
+query_census_years <- function(years = 2021:2024, numeric_vars = c("AGEP", "PWGTP"), categorical_vars = "SEX", geography = "State", geography_values = NULL) {
+
+  if (!is.numeric(years) ||
+      length(years) == 0L ||
+      anyNA(years) ||
+      !all(years %in% 2021:2024)) {
+    stop("years must contain values from 2021 through 2024.")
+  }
+
+  years <- unique(years)
+
+  yearly_data <- lapply(years, function(current_year) {
+
+    result <- query_census(
+      year = current_year,
+      numeric_vars = numeric_vars,
+      categorical_vars = categorical_vars,
+      geography = geography,
+      geography_values = geography_values
+    )
+
+    # Bind ordinary tibbles, then restore the custom class
+    class(result) <- setdiff(class(result), "census")
+    result$year <- as.character(current_year)
+
+    result
+  })
+
+  result <- dplyr::bind_rows(yearly_data)
+  result$year <- factor(result$year, levels = as.character(sort(years)))
+
+  class(result) <- c("census", class(result))
+
+  result
+}
+```
+

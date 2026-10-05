@@ -68,78 +68,32 @@ Looking above, we have created a reusable function for pulling census data from 
 
 Next, we are going to write a function to query the PUMS API and return a nicely formatted tibble: 
 
-```{r Part 1 - Parsing API Data}
+```{r Part 1 - Parsing API Data 1}
 
+library(httr)
+library(jsonlite)
 library(tibble)
 
-#Here we are using 2024 data for NC, requesting age, weight, and sex, restricting the age to 25 to make it easier to inspect
-response <- GET(
-  "https://api.census.gov/data/2024/acs/acs1/pums",
-  query = list(
-    get = "AGEP,PWGTP,SEX",
-    `for` = "state:37",
-    AGEP = "25",
-    key = Sys.getenv("CENSUS_API_KEY")
-  )
-)
-
-#converts http errors into R errors, helps to indicate why a request has failed if it does
-stop_for_status(response)
-
-
-
-#Next, we will convert the JSON text into an R object
-parsed_data <- content(
-  response,
-  as = "text",
-  encoding = "UTF-8"
-) |>
-  fromJSON()
-
-head(parsed_data)
-str(parsed_data)
-
-# Extract the column names
-column_names <- parsed_data[1, ]
-
-# Convert the remaining rows into a tibble
-census_data <- tibble::as_tibble(
-  parsed_data[-1, , drop = FALSE],
-  .name_repair = "minimal"
-)
-
-# Assign the names we extracted
-names(census_data) <- column_names
-
-census_data <- census_data[, !duplicated(names(census_data))]
-
-head(census_data)
-str(census_data)
-
-
-#Now, let's wrap the above steps into a helper function
 response_to_tibble <- function(response) {
+  httr::stop_for_status(response)
 
-  # Stop if the request returned an HTTP error
-  stop_for_status(response)
-
-  # Read the response as text
-  response_text <- content(
+  response_text <- httr::content(
     response,
     as = "text",
     encoding = "UTF-8"
   )
 
-  # Catch non-JSON responses, including the HTML key errors we encountered
   if (!jsonlite::validate(response_text)) {
-    stop("The API did not return valid JSON. Check your request and API key.")
+    stop(
+      "Census returned non-JSON content. Inspect response_text and check your API key.",
+      call. = FALSE
+    )
   }
 
-  # Parse the JSON and extract the header row
-  parsed_data <- fromJSON(response_text)
+  parsed_data <- jsonlite::fromJSON(response_text)
+
   column_names <- parsed_data[1, ]
 
-  # Convert the observation rows into a tibble
   census_data <- tibble::as_tibble(
     parsed_data[-1, , drop = FALSE],
     .name_repair = "minimal"
@@ -147,18 +101,374 @@ response_to_tibble <- function(response) {
 
   names(census_data) <- column_names
 
-  # Remove repeated columns returned from filtering requested variables
-  census_data <- census_data[, !duplicated(names(census_data))]
-
-  return(census_data)
+  census_data[, !duplicated(names(census_data)), drop = FALSE]
 }
+
+api_key <- trimws(Sys.getenv("CENSUS_API_KEY"))
+
+if (!nzchar(api_key)) {
+  stop("CENSUS_API_KEY is not set in this R session.")
+}
+
+response <- httr::GET(
+  "https://api.census.gov/data/2024/acs/acs1/pums",
+  query = list(
+    get = "AGEP,PWGTP,SEX",
+    `for` = "state:37",
+    AGEP = "25",
+    key = api_key
+  )
+)
 
 census_data <- response_to_tibble(response)
 
 head(census_data)
-names(census_data)
+str(census_data)
+
+
 ```
 
 
+Next, since the API returns many values as codes, we need the variable descriptions to know what they all are. We'll write some functions below to extract the codes and labels from the metadata and standardize the codes before matching them:
 
+```{r Part 1 - Parsing API Data 2}
+
+# Return a vector where the names are codes and values are descriptions
+get_labels <- function(variable_metadata) {
+  labels <- unlist(
+    variable_metadata$values$item,
+    use.names = TRUE
+  )
+
+  if (length(labels) == 0L) {
+    return(setNames(character(), character()))
+  }
+
+  labels
+}
+
+# Standardize numeric codes without losing zero
+normalize_code <- function(x) {
+  sub("^0+(?=[0-9])", "", as.character(x), perl = TRUE)
+}
+
+# Match observed codes to their descriptions
+lookup_labels <- function(x, labels) {
+  positions <- match(
+    normalize_code(x),
+    normalize_code(names(labels))
+  )
+
+  unname(labels[positions])
+}
+
+```
+
+
+The JWAP and JWDP variables denote the arrival and departure times, but their values are time intervals and not actual clock times. We can use the midpoint of each interval as an approximate time. These functions convert the interval endpoints into seconds after midnight, calculate the midpoint, and store the result as a time of day.
+
+```{r Part 1 - Parsing API Data 3}
+
+# Convert a clock label, such as "4:10 a.m.", to seconds after midnight
+clock_seconds <- function(x) {
+  cleaned <- tolower(gsub(".", "", trimws(x), fixed = TRUE))
+
+  pieces <- regmatches(
+    cleaned,
+    regexec("^([0-9]{1,2}):([0-9]{2})\\s*([ap]m)$", cleaned)
+  )[[1]]
+
+  if (length(pieces) != 4L) {
+    stop("Unrecognized clock label: ", x)
+  }
+
+  hour <- as.numeric(pieces[2])
+  minute <- as.numeric(pieces[3])
+
+  if (hour < 1 || hour > 12 || minute > 59) {
+    stop("Invalid clock label: ", x)
+  }
+
+  hour <- hour %% 12
+
+  if (pieces[4] == "pm") {
+    hour <- hour + 12
+  }
+
+  hour * 3600 + minute * 60
+}
+
+# Convert one interval description to its midpoint
+interval_midpoint <- function(label) {
+  if (is.na(label) ||
+      grepl("N/A|not applicable|suppressed", label,
+            ignore.case = TRUE)) {
+    return(NA_real_)
+  }
+
+  endpoints <- strsplit(label, " to ", fixed = TRUE)[[1]]
+
+  if (length(endpoints) != 2L) {
+    stop("Unrecognized time interval: ", label)
+  }
+
+  start <- clock_seconds(endpoints[1])
+  end <- clock_seconds(endpoints[2])
+
+  # Allow an interval to cross midnight
+  if (end < start) {
+    end <- end + 24 * 3600
+  }
+
+  ((start + end) / 2) %% (24 * 3600)
+}
+
+# Decode the metadata once, then match the observed codes
+parse_census_time <- function(x, variable_metadata) {
+  labels <- get_labels(variable_metadata)
+
+  midpoints <- vapply(
+    unname(labels),
+    interval_midpoint,
+    numeric(1)
+  )
+
+  positions <- match(
+    normalize_code(x),
+    normalize_code(names(labels))
+  )
+
+  hms::hms(seconds = unname(midpoints[positions]))
+}
+
+```
+
+Next, we need to give the remaining variables appropriate types: Numeric values to Numeric type, and categorical values to Factors. Some numeric values represent NA observations and are not actual measurements, and these can be identified using the metadata:
+
+```{r Part 1 - Parsing API Data 4}
+
+parse_census_numeric <- function(x, variable_metadata) {
+  labels <- get_labels(variable_metadata)
+
+  missing_codes <- names(labels)[
+    grepl("N/A|not applicable|suppressed", labels,
+          ignore.case = TRUE)
+  ]
+
+  x[normalize_code(x) %in% normalize_code(missing_codes)] <- NA_character_
+
+  result <- suppressWarnings(as.numeric(x))
+
+  # Recognize textual null values, but catch unexpected text
+  unexpected <- !is.na(x) &
+    !tolower(trimws(x)) %in% c("", "null", "na", "nan") &
+    is.na(result)
+
+  if (any(unexpected)) {
+    stop("Unexpected nonnumeric values in a numeric variable.")
+  }
+
+  result
+}
+
+parse_census_factor <- function(x, variable_metadata) {
+  labels <- get_labels(variable_metadata)
+
+  if (length(labels) == 0L) {
+    stop("No categorical labels found in the metadata.")
+  }
+
+  labels <- labels[order(as.numeric(names(labels)))]
+
+  unknown <- !is.na(x) &
+    !normalize_code(x) %in% normalize_code(names(labels))
+
+  if (any(unknown)) {
+    stop("A categorical code was not found in the metadata.")
+  }
+
+  factor(
+    normalize_code(x),
+    levels = normalize_code(names(labels)),
+    labels = unname(labels)
+  )
+}
+
+```
+
+
+Now, we'll combine all of our functions above to create the main function query_census. The user can choose a survey year, numeric variables, categorical variables, and geography. Before making a request, the function checks that the inputs meet the proper requirements, specifically: requires PWGTP, at least one other numeric variable, and at least one categorical variable.
+
+The default request uses 2024 data for NC, returning age, sex, and weight. Users can also elect a region/division, or request all valid values within a geography type. Geo codes are checked against the metadata, with PR excluded. Lastly, the function converts the returned columns and adds the "census" class, which allows our custom summary and plotting methods to recognize the data.
+
+```{r Part 1 - Parsing API Data 5}
+
+query_census <- function(year = 2024, numeric_vars = c("AGEP", "PWGTP"), categorical_vars = "SEX", geography = "State", geography_values = NULL) {
+
+  # Validate the year
+  if (!is.numeric(year) ||
+      length(year) != 1L ||
+      anyNA(year) ||
+      !year %in% 2021:2024) {
+    stop("year must be one of 2021, 2022, 2023, or 2024.")
+  }
+
+  allowed_numeric <- c(
+    "AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP", "PWGTP"
+  )
+
+  allowed_categorical <- c("FER", "HHL", "SCH", "SCHL", "SEX")
+
+  # Validate numeric variable selections
+  if (!is.character(numeric_vars) ||
+      anyNA(numeric_vars) ||
+      !all(numeric_vars %in% allowed_numeric)) {
+    stop("numeric_vars contains an unsupported variable.")
+  }
+
+  if (!"PWGTP" %in% numeric_vars ||
+      length(setdiff(numeric_vars, "PWGTP")) == 0L) {
+    stop("Include PWGTP and at least one other numeric variable.")
+  }
+
+  # Validate categorical variable selections
+  if (!is.character(categorical_vars) ||
+      length(categorical_vars) == 0L ||
+      anyNA(categorical_vars) ||
+      !all(categorical_vars %in% allowed_categorical)) {
+    stop("Select at least one supported categorical variable.")
+  }
+
+  numeric_vars <- unique(numeric_vars)
+  categorical_vars <- unique(categorical_vars)
+
+  # Validate the geography type
+  if (!is.character(geography) ||
+      length(geography) != 1L ||
+      anyNA(geography) ||
+      !geography %in% c("Region", "Division", "State")) {
+    stop("geography must be exactly Region, Division, or State.")
+  }
+
+  # Load the correct year's metadata
+  metadata <- readRDS("data/census_var_list.rds")[[as.character(year)]]
+
+  if (is.null(metadata)) {
+    stop("Metadata for the requested year was not found.")
+  }
+
+  geography_variable <- switch(
+    geography,
+    Region = "REGION",
+    Division = "DIVISION",
+    State = if (year <= 2022) "ST" else "STATE"
+  )
+
+  geography_labels <- get_labels(metadata[[geography_variable]])
+
+  # Puerto Rico is outside the scope of this project
+  geography_labels <- geography_labels[
+    !grepl("Puerto Rico", geography_labels, ignore.case = TRUE)
+  ]
+
+  valid_codes <- names(geography_labels)
+
+  # Defaults: North Carolina, South Atlantic, or South
+  if (is.null(geography_values)) {
+    geography_values <- switch(
+      geography,
+      State = "37",
+      Division = "5",
+      Region = "3"
+    )
+  }
+
+  if (!(is.character(geography_values) ||
+        is.numeric(geography_values)) ||
+      length(geography_values) == 0L ||
+      anyNA(geography_values)) {
+    stop("Supply valid geography codes or 'all'.")
+  }
+
+  # 'all' is a selection within a geography type
+  if (length(geography_values) == 1L &&
+      tolower(as.character(geography_values)) == "all") {
+
+    selected_codes <- valid_codes
+
+  } else {
+
+    positions <- match(
+      normalize_code(geography_values),
+      normalize_code(valid_codes)
+    )
+
+    if (anyNA(positions)) {
+      stop("Invalid geography code for this year and geography type.")
+    }
+
+    selected_codes <- unique(valid_codes[positions])
+  }
+
+  api_key <- trimws(Sys.getenv("CENSUS_API_KEY"))
+
+  if (!nzchar(api_key)) {
+    stop("Set CENSUS_API_KEY in your R session before querying.")
+  }
+
+  response <- httr::GET(
+    paste0("https://api.census.gov/data/", year, "/acs/acs1/pums"),
+    query = list(
+      get = paste(c(numeric_vars, categorical_vars), collapse = ","),
+      `for` = paste0(
+        tolower(geography), ":",
+        paste(selected_codes, collapse = ",")
+      ),
+      key = api_key
+    )
+  )
+
+  result <- response_to_tibble(response)
+
+  required_columns <- c(
+    numeric_vars, categorical_vars, tolower(geography)
+  )
+
+  if (!all(required_columns %in% names(result))) {
+    stop("The API response is missing requested columns.")
+  }
+
+  # Convert ordinary numeric variables and time variables separately
+  for (variable in numeric_vars) {
+    if (variable %in% c("JWAP", "JWDP")) {
+      result[[variable]] <- parse_census_time(
+        result[[variable]], metadata[[variable]]
+      )
+    } else {
+      result[[variable]] <- parse_census_numeric(
+        result[[variable]], metadata[[variable]]
+      )
+    }
+  }
+
+  for (variable in categorical_vars) {
+    result[[variable]] <- parse_census_factor(
+      result[[variable]], metadata[[variable]]
+    )
+  }
+
+  # Give geography codes readable labels
+  geography_column <- tolower(geography)
+
+  result[[geography_column]] <- parse_census_factor(
+    result[[geography_column]],
+    metadata[[geography_variable]]
+  )
+
+  class(result) <- c("census", class(result))
+
+  result
+}
+
+```
 

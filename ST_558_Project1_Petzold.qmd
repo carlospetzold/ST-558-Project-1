@@ -564,7 +564,7 @@ By default, the method summarizes all eligible numeric and categorical columns, 
 
 ```{r Part 2 - Writing a Generic Function for Summarizing 2}
 
-summary_census <- function(
+summary.census <- function(
     object,
     numeric_vars = NULL,
     categorical_vars = NULL,
@@ -672,7 +672,7 @@ summary_census <- function(
 To visually compare, we will create a plotting method for objects with the "census" class. We must select one categorical variable and one numeric measurement. The method produces a boxplot for each category and includes PWGTP in the weight aesthetic so that the boxplot calculations account for the person weights. Observations missing either selected variable, or having zero weight, are excluded from the plot.
 
 ```{r Part 2 - Writing a Generic Function for Summarizing 3}
-plot_census <- function(x, cat_var, num_var, ...) {
+plot.census <- function(x, cat_var, num_var, ...) {
 
   check_weights(x)
 
@@ -733,4 +733,29 @@ plot_census <- function(x, cat_var, num_var, ...) {
     ggplot2::theme_minimal()
 }
 ```
+
+
+We'll now test the functions to make sure that they are working appropriately. Here is a quick example:
+
+```{r Part 2 - Writing a Generic Function for Summarizing 4}
+
+toy <- tibble::tibble(
+  AGEP = c(20, 40),
+  PWGTP = c(1, 3),
+  SEX = factor(c("Male", "Female"))
+)
+
+class(toy) <- c("census", class(toy))
+
+toy_summary <- summary(toy)
+toy_summary
+
+stopifnot(
+  isTRUE(all.equal(unname(toy_summary$numeric$AGEP["mean"]), 35)),
+  isTRUE(all.equal(unname(toy_summary$numeric$AGEP["sd"]), sqrt(75))),
+  toy_summary$categorical$SEX["Male"] == 1,
+  toy_summary$categorical$SEX["Female"] == 3
+)
+```
+
 

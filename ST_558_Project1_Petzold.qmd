@@ -739,6 +739,7 @@ We'll now test the functions to make sure that they are working appropriately. H
 
 ```{r Part 2 - Writing a Generic Function for Summarizing 4}
 
+#This is a test data set to check the summary function on
 toy <- tibble::tibble(
   AGEP = c(20, 40),
   PWGTP = c(1, 3),
@@ -750,12 +751,58 @@ class(toy) <- c("census", class(toy))
 toy_summary <- summary(toy)
 toy_summary
 
-stopifnot(
-  isTRUE(all.equal(unname(toy_summary$numeric$AGEP["mean"]), 35)),
-  isTRUE(all.equal(unname(toy_summary$numeric$AGEP["sd"]), sqrt(75))),
-  toy_summary$categorical$SEX["Male"] == 1,
-  toy_summary$categorical$SEX["Female"] == 3
+#This is a test data set to check the plot function on
+toy_plot <- tibble::tibble(
+  AGEP = c(20, 30, 40, 50, 20, 30, 40, 50),
+  PWGTP = c(8, 1, 1, 1, 1, 1, 1, 8),
+  SEX = factor(rep(c("Male", "Female"), each = 4))
 )
+
+class(toy_plot) <- c("census", class(toy_plot))
+
+p <- plot(
+  toy_plot,
+  cat_var = "SEX",
+  num_var = "AGEP"
+)
+
+print(p)
+
+#These checks stop the run if any of the conditions are not true, which they all should be
+stopifnot(
+  isTRUE(all.equal(unname(toy_summary$numeric$AGEP["mean"]), 35)), #Error if our test example does not have mean = 35
+  isTRUE(all.equal(unname(toy_summary$numeric$AGEP["sd"]), sqrt(75))), #Error if our test example does not have sd = sqrt(75)
+  toy_summary$categorical$SEX["Male"] == 1,  #Error if our test example does not have 1 male
+  toy_summary$categorical$SEX["Female"] == 3 #Error if our test example does not have 3 females
+)
+
+#These checks stop the run if any of these interval midpoints are not calculated correctly
+stopifnot(
+  interval_midpoint("12:00 a.m. to 12:04 a.m.") == 120,
+  interval_midpoint("12:00 p.m. to 12:04 p.m.") == 43320,
+  interval_midpoint("4:10 a.m. to 4:19 a.m.") == 15270,
+  is.na(interval_midpoint("N/A (not a worker)"))
+)
+
+#This function prints error messages (intentionally) to ensure that our query_census function is working the right way
+show_error <- function(expression) {
+  tryCatch(
+    expression,
+    error = function(e) conditionMessage(e)
+  )
+}
+
+show_error(query_census(year = 2020))
+show_error(query_census(year = c(2023, 2024)))
+show_error(query_census(numeric_vars = "AGEP"))
+show_error(query_census(numeric_vars = "PWGTP"))
+show_error(query_census(categorical_vars = character()))
+show_error(query_census(categorical_vars = "MAR"))
+show_error(query_census(geography = "All"))
+show_error(query_census(geography = c("State", "Region")))
+show_error(query_census(geography_values = "99"))
+
+
 ```
 
 

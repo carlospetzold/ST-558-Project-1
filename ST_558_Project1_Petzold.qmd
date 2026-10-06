@@ -64,9 +64,9 @@ saveRDS(census_var_list, file = "data/census_var_list.rds")
 
 ```
 
-Looking above, we have created a reusable function for pulling census data from the census API based on the desired year and the desired set of variables. If we wanted to pull a different year, we would update the list of variable names, then simply update the parameters in the new function call to pull that data. We would have to manually include this new data to the census_var_list .rds file we've created at the end, but we could cross that bridge if we came to it.
+Looking above, we have created a reusable function for pulling variable information/descriptions from the census API based on the desired year and the desired set of variables. If we wanted to pull a different year, we would update the list of variable names, then simply update the parameters in the new function call to pull that data. Keeping separate metadata for each year is important because variable names and definitions may differ; for example, the state variable changes from ST to STATE. Saving this information also allows our later functions to reuse it without downloading the descriptions again.
 
-Next, we are going to write a function to query the PUMS API and return a nicely formatted tibble: 
+Next, we are going to write a function to query the PUMS API and return a nicely formatted tibble. We'll test it on an example case (below we use 2024 NC data restricted to age 25). The API returns column names in the first row, so our helper separates the row from the observations and converts the remaining data into a tibble. We also check that the response contains a valid JSON because an unsuccessful API request can return an HTML page: 
 
 ```{r Part 1 - Parsing API Data 1}
 
@@ -243,7 +243,7 @@ parse_census_time <- function(x, variable_metadata) {
 
 ```
 
-Next, we need to give the remaining variables appropriate types: Numeric values to Numeric type, and categorical values to Factors. Some numeric values represent NA observations and are not actual measurements, and these can be identified using the metadata:
+Next, we need to give the remaining variables appropriate types: Numeric values to Numeric type, and categorical values to Factors. Some numeric values represent NA observations and are not actual measurements, and these can be identified using the metadata. Treating an NA code as an actual measurement would distort our mean and sd calculations, so it is critical that we assign these values as R NA values and not just leave them as is. That is specifically for the numeric values that we will be doing calculations on, and not the categorical variables since it would be fine to just leave the NA codes as is since we are not doing any calculations on them:
 
 ```{r Part 1 - Parsing API Data 4}
 
@@ -491,7 +491,7 @@ nc_times <- query_census(
 head(nc_times[c("JWAP", "JWDP")])
 
 ```
-
+As we can see above, the default request retusns numeric age and weight columns, while sex and state have their descriptive factor labels. The returned object also includes the "census" class, which we will use for part 2. The last part of our output shows us the converted interval midpoints and missing values
 
 Our single-year function handles one survey year at a time. To compare years, we will write a wrapper that calls it once for each requested year and combines the results. Reusing the existing function keeps the validation and conversion steps consistent. We will also add a year column and store it as a factor because it identifies survey groups for our summaries and plots:
 
@@ -537,7 +537,9 @@ query_census_years <- function(years = 2021:2024, numeric_vars = c("AGEP", "PWGT
 
 # Part 2: Writing a Generic Function for Summarizing
 
-Now we will work on creating some generic functions that we can use to explore our census data, specifically adding methods to the existing summary() and plot() generic functions. We will start with 2 smaller helper functions to identify eligible columns and validate weights. Time variables should not be included in the numeric summaries, and weights must be numeric, non-negative, and finite so that weighted calculations are meaningful:
+Now we will work on creating some generic functions that we can use to explore our census data, specifically adding methods to the existing summary() and plot() generic functions. We will start with 2 smaller helper functions to identify eligible columns and validate weights. Time variables should not be included in the numeric summaries, and weights must be numeric, non-negative, and finite so that weighted calculations are meaningful.
+
+Each row represents a sampled person, and PWGTP indicates how many people that record represents in the population estimate. Giving every row equal importance would ignore these weights. Our summary and plotting methods will therefore use PWGTP to account for each record’s contribution without physically repeating rows:
 
 ```{r Part 2 - Writing a Generic Function for Summarizing 1}
 
@@ -806,3 +808,4 @@ show_error(query_census(geography_values = "99"))
 ```
 
 
+Now let's investigate something that we are interested in within our data

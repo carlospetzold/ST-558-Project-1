@@ -808,4 +808,124 @@ show_error(query_census(geography_values = "99"))
 ```
 
 
-Now let's investigate something that we are interested in within our data
+# Investigation
+
+Now let's investigate something that we are interested in within our data. After the most intense portion of the COVID pandemic (2020) ended, many people continued to work from home, but others were asked to return to the office after the mandates were lifted. I would be interested in seeing if the lingering effects of the pandemic had effects on commute times for people, and if these changed over the 2021-2024 period as more people went back into the office. It could also be interesting to see how these commute times differed by sex, which could indicate if the jobs that are primarily held by either men or women had any differences in how the pandemic affected them. Let's also use just the information for North Carolina to see the trends specifically for our state, and to keep a reasonable amount of values in our data.
+
+Let's start with pulling the data we want for this investigation:
+
+```{r Investigation 1}
+
+nc_commuting <- query_census_years(
+  years = 2021:2024,
+  numeric_vars = c("AGEP", "JWMNP", "PWGTP"),
+  categorical_vars = "SEX",
+  geography = "State",
+  geography_values = "37"
+)
+
+```
+
+
+Now that we have our data, let's do a specified summary for commute times by year, regardless of sex:
+
+```{r Investigation 2}
+#Summaries split by year
+annual_summaries <- lapply(
+  split(nc_commuting, nc_commuting$year),
+  function(year_data) {
+    summary(
+      year_data,
+      numeric_vars = "JWMNP",
+      categorical_vars = "SEX"
+    )
+  }
+)
+
+annual_summaries
+
+#Plots of the above summaries
+
+plot(
+  nc_commuting,
+  cat_var = "year",
+  num_var = "JWMNP"
+)
+
+```
+
+As we can see from the output above, our mean commute time for people in NC does slightly increase each year from 2021 to 2024, going from 24.578 in 2021, to 25.119 in 2022, then 25.263 in 2023, and finally 25.76 in 2024. This indicates that slowly but surely, the average commute time was increasing over those 4 years. This is also supported by our box plots, which show similar, but slightly increasing mean values across the 4 years, and also show similar spreads, with IQRs hovering around 15 to 30 minute commutes across the 4 years. The numeric spreads also support similarity here, going from 21.03 in 2021 to 21.32 in 2024, with 2024 being the high point, and 2022 being the low point at 20.98. 
+
+
+But something else to be aware of is that fact that, if someone was working from home during the pandemic, then eventually was asked to return to the office, they may have been an NA value until the point when the returned to the office, and then finally reported a commute time when they did. This is likely a very common occurrence, so something else that could be considered in our analysis is what proportion of the respondents were NA across the 4 years, which we look at below (not using our functions):
+
+```{r Investigation 3}
+
+#Proportion of values that are NA/missing in the 2021 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2021]))
+  
+#Proportion of values that are NA/missing in the 2022 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2022]))
+
+#Proportion of values that are NA/missing in the 2023 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2023]))
+
+#Proportion of values that are NA/missing in the 2024 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2024]))
+```
+
+As we can see above, the proportion of people who responded NA to the census did decrease from 64.5% to 61.5%, indicating that there was an increase in commute time responses. I think it is reasonable to assume that a large part of this change is related to the un-tightening of COVID restrictions and people being asked to return to office. We can investigate this further by restricting this to those of traditional "working age" (18-65):
+
+
+```{r Investigation 4}
+
+#Proportion of values that are NA/missing in the 2021 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2021 & nc_commuting$AGEP >= 18 & nc_commuting$AGEP <= 65]))
+  
+#Proportion of values that are NA/missing in the 2022 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2022 & nc_commuting$AGEP >= 18 & nc_commuting$AGEP <= 65]))
+
+#Proportion of values that are NA/missing in the 2023 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2023 & nc_commuting$AGEP >= 18 & nc_commuting$AGEP <= 65]))
+
+#Proportion of values that are NA/missing in the 2024 NC census data
+mean(is.na(nc_commuting$JWMNP[nc_commuting$year == 2024 & nc_commuting$AGEP >= 18 & nc_commuting$AGEP <= 65]))
+
+```
+
+This reduced the number of those who responded NA significantly, which indicates to me the we could re-do our summary to incorporate this fact. Let's re-run our summary and plot functions, this time using only those aged 18-65
+
+```{r Investigation 5}
+
+nc_commuting_2 <- nc_commuting[
+  !is.na(nc_commuting$AGEP) &
+    nc_commuting$AGEP >= 18 &
+    nc_commuting$AGEP <= 65,
+]
+
+# Weighted commute-time summaries for each year
+annual_summaries <- lapply(
+  split(nc_commuting_2, nc_commuting_2$year),
+  function(year_data) {
+    summary(
+      year_data,
+      numeric_vars = "JWMNP",
+      categorical_vars = character()
+    )
+  }
+)
+
+annual_summaries
+
+# Weighted commute-time distributions by year
+p <- plot(
+  nc_commuting_2,
+  cat_var = "year",
+  num_var = "JWMNP"
+)
+
+print(p)
+
+```
+
+Here, we can see that commute times increase as they did before, but the means across the years shifted higher by about 0.3 minutes compared to our prior analysis, from 24.85 in 2021 to 26.01 in 2024. Our plots also indicate similar spreads as before. 

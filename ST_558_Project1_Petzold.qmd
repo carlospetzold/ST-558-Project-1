@@ -152,16 +152,6 @@ normalize_code <- function(x) {
   sub("^0+(?=[0-9])", "", as.character(x), perl = TRUE)
 }
 
-# Match observed codes to their descriptions
-lookup_labels <- function(x, labels) {
-  positions <- match(
-    normalize_code(x),
-    normalize_code(names(labels))
-  )
-
-  unname(labels[positions])
-}
-
 ```
 
 
@@ -259,7 +249,7 @@ parse_census_numeric <- function(x, variable_metadata) {
 
   result <- suppressWarnings(as.numeric(x))
 
-  # Recognize textual null values, but catch unexpected text
+  # Recognize text null values, but catch unexpected text
   unexpected <- !is.na(x) &
     !tolower(trimws(x)) %in% c("", "null", "na", "nan") &
     is.na(result)
@@ -491,6 +481,7 @@ nc_times <- query_census(
 head(nc_times[c("JWAP", "JWDP")])
 
 ```
+
 As we can see above, the default request retusns numeric age and weight columns, while sex and state have their descriptive factor labels. The returned object also includes the "census" class, which we will use for part 2. The last part of our output shows us the converted interval midpoints and missing values
 
 Our single-year function handles one survey year at a time. To compare years, we will write a wrapper that calls it once for each requested year and combines the results. Reusing the existing function keeps the validation and conversion steps consistent. We will also add a year column and store it as a factor because it identifies survey groups for our summaries and plots:
@@ -854,7 +845,7 @@ plot(
 
 ```
 
-As we can see from the output above, our mean commute time for people in NC does slightly increase each year from 2021 to 2024, going from 24.578 in 2021, to 25.119 in 2022, then 25.263 in 2023, and finally 25.76 in 2024. This indicates that slowly but surely, the average commute time was increasing over those 4 years. This is also supported by our box plots, which show similar, but slightly increasing median values across the 4 years, and also show similar spreads, with middle 50% of commute times hovering around 15 to 30 minute commutes across the 4 years. The numeric spreads also support similarity here, going from 21.03 in 2021 to 21.32 in 2024, with 2024 being the high point, and 2022 being the low point at 20.98. 
+As we can see from the output above, our weighted mean commute time for people in NC does slightly increase each year from 2021 to 2024, going from 24.578 in 2021, to 25.119 in 2022, then 25.263 in 2023, and finally 25.76 in 2024. This indicates that slowly but surely, the average commute time was increasing over those 4 years. However, the boxplot medians remained approximately 20 minutes, suggesting that the increase in the mean was not accompanied by a comparable shift in the median, but show similar spreads with the middle 50% of commute times hovering around 12 to 30 minute commutes across the 4 years. The numeric spreads also support similarity here, going from 21.03 in 2021 to 21.32 in 2024, with 2024 being the high point, and 2022 being the low point at 20.98. 
 
 
 But something else to be aware of is that fact that, if someone was working from home during the pandemic, then eventually was asked to return to the office, they may have been an NA value until the point when the returned to the office, and then finally reported a commute time when they did. This is likely a very common occurrence, so something else that could be considered in our analysis is what proportion of the respondents were NA across the 4 years, which we look at below (not using our functions):
@@ -898,7 +889,7 @@ data.frame(
 )
 ```
 
-As we can see above, the proportion of people who responded NA to the census did decrease from 62.4% to 58.7%, indicating that there was an increase in commute time responses. While we cannot definitively say with this analysis that the lifting of COVID restrictions was the cause of this trend, it does make sense that the lifting of the COVID restrictions during 2021 would play some role in this decrease in Non-Response of commute time values. We investigated this further by restricting this to those of traditional "working age" (18-65) and found that this reduced the number of those who responded NA significantly, to 43.73% in 2021 and 38.15 in 2024. Now let's re-run our summary and plot functions on this updated population:
+As we can see above, the proportion of people who responded NA to the census did decrease from 62.4% to 58.7%, indicating that there was an increase in commute time responses. While we cannot definitively say with this analysis that the lifting of COVID restrictions was the cause of this trend, it does make sense that the lifting of the COVID restrictions during 2021 would play some role in this decrease in Non-Response of commute time values. We investigated this further by restricting this to those of traditional "working age" (18-65) and found that this reduced the number of those who responded NA, to 43.73% in 2021 and 38.15 in 2024. Now let's re-run our summary and plot functions on this updated population:
 
 
 ```{r Investigation 5}
@@ -981,4 +972,7 @@ print(p_sex)
 
 ```
 
-As we can see from the numerical summary above, Men had a higher average commute time of 27.3 minutes comapred to Women at 24.5 minutes. Men also had a higher standard deviation at 22.9 minutes compared to 19.5 minutes for Women. The box plots show the middle 50% of values around 18-35 minutes for Men, and 15-30 minutes for women, with both distributions being skewed right with upper-tail outliers.
+As we can see from the numerical summary above, Men had a higher average commute time of 27.3 minutes compared to Women at 24.5 minutes. Men also had a higher standard deviation at 22.9 minutes compared to 19.5 minutes for Women. The box plots show the middle 50% of values around 18-35 minutes for Men, and 15-30 minutes for women, with both distributions being skewed right with upper-tail outliers.
+
+
+To conclude, among North Carolina residents ages 18–65 with available commute-time measurements, the weighted mean increased from 24.86 minutes in 2021 to 26.01 minutes in 2024. In 2024, males had a higher weighted mean commute time than females, 27.33 versus 24.52 minutes respectively, although their plotted medians were similar. These comparisons describe differences in annual samples, and do not necessarily establish the effects of pandemic policies or explain differences between sex groups.
